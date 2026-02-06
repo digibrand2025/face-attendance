@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, TouchableOpacity, Image, Platform } from 'react
 import { CameraView, useCameraPermissions, CameraType, FlashMode } from 'expo-camera';
 import { Config } from '../constants/Config';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 interface CameraComponentProps {
     onCapture: (base64Image: string) => void;
@@ -142,10 +143,10 @@ function CameraComponentContent({ onCapture, onCancel, buttonLabel, facing, setF
 
                 if (photo) {
                     // 2. Resize and Compress using Manipulator
-                    const manipulated = await ImagePicker.ImageManipulator.manipulateAsync(
+                    const manipulated = await ImageManipulator.manipulateAsync(
                         photo.uri,
                         [{ resize: { width: 800 } }], // Resize to 800px width (maintains aspect ratio)
-                        { compress: 0.7, format: ImagePicker.ImageManipulator.SaveFormat.JPEG, base64: true }
+                        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
                     );
 
                     setImage({ uri: manipulated.uri, base64: manipulated.base64 || '' });
