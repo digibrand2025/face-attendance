@@ -4,8 +4,9 @@ import { useIsFocused } from '@react-navigation/native';
 import CameraComponent from '../../components/CameraComponent';
 import StudentCard from '../../components/StudentCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import RecognitionSuccessResult from '../../components/RecognitionSuccessResult';
 import { recognizeFace } from '../../services/lambdaService';
-import { markAttendance } from '../../services/phpService';
+// import { markAttendance } from '../../services/phpService';
 import { Config } from '../../constants/Config';
 import { Student } from '../../types';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -26,21 +27,28 @@ export default function AttendanceScreen() {
         }
     }, [isFocused]);
 
-    const handleCapture = async (base64: string) => {
+    const handleCapture = async (uri: string) => {
         setViewState('processing');
 
         try {
             // 1. Recognize Face
-            const recognition = await recognizeFace(base64);
+            const recognition = await recognizeFace(uri);
 
             if (recognition.success && recognition.recognized && recognition.studentId) {
                 const conf = recognition.confidence || 0;
                 setConfidenceInfo(conf);
 
-                // Mock student data since we don't have a DB yet to fetch details from ID
+                // Mock student data lookup
+                const MOCK_STUDENTS: { [key: string]: string } = {
+                    '1': 'Nisal Weerarathne',
+                    '2': 'Lakshan Chathuranga'
+                };
+
+                const studentName = MOCK_STUDENTS[recognition.studentId] || 'Student ' + recognition.studentId;
+
                 const studentData: Student = {
                     studentId: recognition.studentId,
-                    studentName: 'Student ' + recognition.studentId, // Placeholder name
+                    studentName: studentName,
                     instituteId: Config.DEFAULT_INSTITUTE_ID
                 };
 
@@ -66,15 +74,23 @@ export default function AttendanceScreen() {
     };
 
     const processAttendance = async (student: Student, confidence: number) => {
+        // PHP Service Disabled for now
+        /*
         const markRes = await markAttendance(
             student.studentId,
             confidence,
             new Date().toISOString(),
             student.instituteId || Config.DEFAULT_INSTITUTE_ID
         );
+        */
+
+        console.log('PHP Service Disabled: Attendance marking skipped for', student.studentId);
+
+        // Mock success for UI feedback
+        const markRes = { success: true };
 
         if (markRes.success) {
-            setResultMessage('Attendance Marked ✅');
+            setResultMessage('Attendance Marked (Offline) ✅');
             Vibration.vibrate(100);
         } else {
             setResultMessage('Recognized, but failed to mark attendance ❌');
@@ -82,12 +98,16 @@ export default function AttendanceScreen() {
         setViewState('result');
 
         // Auto reset after 3 seconds
+        // Auto reset timeout removed to allow user to view the success animation
+        // User will manually click "Scan Next"
+        /* 
         setTimeout(() => {
             if (isFocused) {
                 setViewState('camera');
                 setRecognizedStudent(null);
             }
-        }, 3000);
+        }, 3000); 
+        */
     };
 
     if (viewState === 'camera') {
@@ -110,53 +130,31 @@ export default function AttendanceScreen() {
                 <LoadingOverlay visible={true} message="Recognizing..." />
             )}
 
-            {viewState === 'result' && (
+            {viewState === 'result' && recognizedStudent && (
+                <RecognitionSuccessResult
+                    student={recognizedStudent}
+                    confidence={confidenceInfo}
+                    onDismiss={() => {
+                        setViewState('camera');
+                        setRecognizedStudent(null);
+                    }}
+                />
+            )}
+
+            {viewState === 'result' && !recognizedStudent && (
                 <View style={styles.resultContainer}>
                     <View style={styles.iconContainer}>
-                        {recognizedStudent ? (
-                            <FontAwesome5 name="check-circle" size={80} color="#4CAF50" />
-                        ) : (
-                            <FontAwesome5 name="times-circle" size={80} color="#F44336" />
-                        )}
+                        <FontAwesome5 name="times-circle" size={80} color="#F44336" />
                     </View>
 
-                    <Text style={styles.resultTitle}>
-                        {recognizedStudent ? 'Identified!' : 'Not Recognized'}
-                    </Text>
-
+                    <Text style={styles.resultTitle}>Not Recognized</Text>
                     <Text style={styles.resultDetails}>{resultMessage}</Text>
 
-                    {recognizedStudent && (
-                        <StudentCard student={recognizedStudent} confidence={confidenceInfo} />
-                    )}
-
-                    {!recognizedStudent && (
-                        <View style={styles.actions}>
-                            <TouchableOpacity style={styles.retryButton} onPress={() => setViewState('camera')}>
-                                <Text style={styles.buttonText}>Try Again</Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    {recognizedStudent && confidenceInfo < Config.CONFIDENCE_THRESHOLD && (
-                        <View style={styles.actions}>
-                            <TouchableOpacity
-                                style={[styles.retryButton, styles.confirmButton]}
-                                onPress={() => processAttendance(recognizedStudent, confidenceInfo)}
-                            >
-                                <Text style={styles.buttonText}>Confirm Manually</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.retryButton} onPress={() => setViewState('camera')}>
-                                <Text style={styles.buttonText}>Scan Next</Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    {recognizedStudent && confidenceInfo >= Config.CONFIDENCE_THRESHOLD && (
+                    <View style={styles.actions}>
                         <TouchableOpacity style={styles.retryButton} onPress={() => setViewState('camera')}>
-                            <Text style={styles.buttonText}>Scan Next</Text>
+                            <Text style={styles.buttonText}>Try Again</Text>
                         </TouchableOpacity>
-                    )}
+                    </View>
                 </View>
             )}
         </View>

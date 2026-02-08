@@ -29,3 +29,19 @@ export interface AttendanceResponse {
   attendanceId?: number;
   error?: string;
 }
+
+export interface EnrolledFace {
+  studentId: string;
+  faceId: string;
+  confidence: number;
+  imageId: string;
+}
+
+export interface ListFacesResponse {
+  success: boolean;
+  totalFaces: number;
+  faces: EnrolledFace[];
+  collectionId: string;
+  region: string;
+  error?: string;
+}

@@ -17,8 +17,8 @@ export default function EnrollScreen() {
     const [studentName, setStudentName] = useState('');
     const [studentClass, setStudentClass] = useState('');
 
-    const handleCapture = (base64: string) => {
-        setImage(base64);
+    const handleCapture = (uri: string) => {
+        setImage(uri);
         setShowCamera(false);
     };
 
