@@ -1,16 +1,7 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
-import Animated, {
-    useSharedValue,
-    useAnimatedStyle,
-    withSpring,
-    withSequence,
-    withDelay,
-    FadeIn,
-    ZoomIn,
-    SlideInDown
-} from 'react-native-reanimated';
-import { FontAwesome5 } from '@expo/vector-icons';
+import { Dimensions, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Student } from '../types';
 
 interface RecognitionSuccessResultProps {
@@ -21,223 +12,352 @@ interface RecognitionSuccessResultProps {
 
 const { width } = Dimensions.get('window');
 
+const COLORS = {
+    primary: "#2b8cee",
+    backgroundLight: "#f6f7f8",
+    backgroundDark: "#101922",
+    success: "#2ECC71",
+    slate900: "#0f172a",
+    slate500: "#64748b",
+    slate400: "#94a3b8",
+    slate100: "#f1f5f9",
+    white: "#ffffff",
+    green100: "#dcfce7",
+    green700: "#15803d",
+    blue200: "#bfdbfe",
+};
+
 export default function RecognitionSuccessResult({ student, confidence, onDismiss }: RecognitionSuccessResultProps) {
-    // Shared value for the checkmark scale animation
-    const scale = useSharedValue(0);
 
     useEffect(() => {
-        scale.value = withSequence(
-            withSpring(1.2),
-            withSpring(1)
-        );
+        const timer = setTimeout(() => {
+            onDismiss();
+        }, 10000);
+        return () => clearTimeout(timer);
     }, []);
-
-    const animatedIconStyle = useAnimatedStyle(() => {
-        return {
-            transform: [{ scale: scale.value }],
-        };
-    });
 
     return (
         <View style={styles.container}>
-            {/* Background Blob/Circle */}
-            <Animated.View
-                entering={ZoomIn.duration(600)}
-                style={styles.successBg}
-            />
+            <StatusBar barStyle="dark-content" />
 
-            {/* Success Icon */}
-            <Animated.View style={[styles.iconContainer, animatedIconStyle]}>
-                <View style={styles.iconCircle}>
-                    <FontAwesome5 name="check" size={50} color="white" />
+            {/* Confetti Background */}
+            <View style={styles.confettiContainer} pointerEvents="none">
+                <View style={[styles.confetti, { top: 40, left: 40, width: 16, height: 16, borderRadius: 8, backgroundColor: '#fbbf24', opacity: 0.6 }]} />
+                <View style={[styles.confetti, { top: 80, right: 80, width: 12, height: 12, backgroundColor: '#f87171', transform: [{ rotate: '45deg' }], opacity: 0.6 }]} />
+                <View style={[styles.confetti, { top: 160, left: '25%', width: 8, height: 24, backgroundColor: COLORS.primary, transform: [{ rotate: '-12deg' }], opacity: 0.4 }]} />
+                <View style={[styles.confetti, { top: 48, right: '33%', width: 12, height: 12, borderRadius: 4, backgroundColor: '#4ade80', transform: [{ rotate: '12deg' }], opacity: 0.5 }]} />
+                <View style={[styles.confetti, { top: 20, left: '50%', width: 16, height: 16, borderRadius: 8, backgroundColor: '#c084fc', opacity: 0.3 }]} />
+            </View>
+
+            {/* Main Card */}
+            <Animated.View entering={FadeInUp.springify()} style={styles.card}>
+
+                {/* Header Image Section */}
+                <View style={styles.cardHeader}>
+                    {/* Decorative Gradient Overlay (Simplified) */}
+                    <View style={styles.headerGradient} />
+
+                    {/* Success Badge */}
+                    <View style={styles.successBadge}>
+                        <MaterialIcons name="verified" size={18} color={COLORS.green700} />
+                        <Text style={styles.successBadgeText}>Success!</Text>
+                    </View>
                 </View>
-            </Animated.View>
 
-            {/* Text Content */}
-            <Animated.View
-                entering={SlideInDown.delay(300).springify()}
-                style={styles.contentContainer}
-            >
-                <Text style={styles.statusText}>Attendance Marked!</Text>
+                {/* Hero Section */}
+                <View style={styles.heroSection}>
+                    <View style={styles.avatarContainer}>
+                        <Image
+                            source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCzpB_cUkr96JYnaYwRpo--tvZHaHUYtieqC6r6g-7QYR96asD-QR047qgHx_rLYOxactWprcAR8he9UnhJIy1iy-zh0bC0oOyjheRco7TidcZFaWhLAdjU1vwUjvxv_Q1VOVSgRWVmN6pQMrGdVuJ9VtqvNLyhmEAIx6ljfq-1fjg1IDGaMPxTmX2N3roDe4yToUizzSBV6WFcRFBZvQfQee4JGfm3K9D3EC8FikkXHEP2mS2vtESCp6AQgiYRFvvo-qEr_GEGNA' }}
+                            style={styles.avatarImage}
+                        />
+                        <View style={styles.checkBadge}>
+                            <MaterialIcons name="check" size={24} color="white" />
+                        </View>
+                    </View>
 
-                <View style={styles.studentCard}>
-                    <View style={styles.avatarPlaceholder}>
-                        <Text style={styles.avatarText}>
-                            {student.studentName.charAt(0).toUpperCase()}
+                    <Text style={styles.studentNameTitle}>Great job, {student.studentName.split(' ')[0]}!</Text>
+                    <Text style={styles.subText}>You're all checked in.</Text>
+
+                    <View style={styles.timestampPill}>
+                        <MaterialIcons name="schedule" size={16} color={COLORS.slate500} style={{ marginRight: 6 }} />
+                        <Text style={styles.timestampText}>
+                            {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                     </View>
+                </View>
 
-                    <View style={styles.infoContainer}>
-                        <Text style={styles.studentName}>{student.studentName}</Text>
-                        <Text style={styles.studentId}>ID: {student.studentId}</Text>
-                        <Text style={styles.confidenceText}>Confidence: {confidence.toFixed(1)}%</Text>
+                {/* Info Cards */}
+                <View style={styles.infoSection}>
+                    <View style={styles.scoreCard}>
+                        <View>
+                            <Text style={styles.scoreLabel}>Attendance Score</Text>
+                            <Text style={styles.scoreValue}>95%</Text>
+                        </View>
+                        <View style={styles.scoreIconCircle}>
+                            <MaterialIcons name="trending-up" size={24} color={COLORS.primary} />
+                        </View>
                     </View>
+
+                    {/* Today's Classes */}
+                    <View style={styles.classesContainer}>
+                        <Text style={styles.classesTitle}>Today's Classes</Text>
+                        <View style={styles.classesGrid}>
+
+                            {/* Animation */}
+                            <View style={[styles.classItem, { backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
+                                <View style={[styles.classIcon, { backgroundColor: '#ffedd5' }]}>
+                                    <MaterialIcons name="animation" size={20} color="#ea580c" />
+                                </View>
+                                <Text style={styles.classText}>Animation</Text>
+                            </View>
+
+                            {/* Mathematics */}
+                            <View style={[styles.classItem, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
+                                <View style={[styles.classIcon, { backgroundColor: '#dbeafe' }]}>
+                                    <MaterialIcons name="calculate" size={20} color="#2563eb" />
+                                </View>
+                                <Text style={styles.classText}>Maths</Text>
+                            </View>
+
+                            {/* Programming */}
+                            <View style={[styles.classItem, { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' }]}>
+                                <View style={[styles.classIcon, { backgroundColor: '#dcfce7' }]}>
+                                    <MaterialIcons name="terminal" size={20} color="#16a34a" />
+                                </View>
+                                <Text style={styles.classText}>Coding</Text>
+                            </View>
+
+                            {/* Graphic Designing */}
+                            <View style={[styles.classItem, { backgroundColor: '#faf5ff', borderColor: '#f3e8ff' }]}>
+                                <View style={[styles.classIcon, { backgroundColor: '#f3e8ff' }]}>
+                                    <MaterialIcons name="palette" size={20} color="#9333ea" />
+                                </View>
+                                <Text style={[styles.classText, { fontSize: 11 }]}>Graphics</Text>
+                            </View>
+
+                        </View>
+                    </View>
+
+                    <TouchableOpacity style={styles.doneButton} onPress={onDismiss} activeOpacity={0.9}>
+                        <Text style={styles.doneButtonText}>Done</Text>
+                        <MaterialIcons name="arrow-forward" size={20} color="white" />
+                    </TouchableOpacity>
                 </View>
 
-                <View style={styles.timeContainer}>
-                    <FontAwesome5 name="clock" size={16} color="#666" />
-                    <Text style={styles.timeText}>
-                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                    <Text style={styles.dateText}>
-                        {new Date().toLocaleDateString()}
-                    </Text>
-                </View>
-
-                {/* Buttons */}
-                <TouchableOpacity
-                    style={styles.button}
-                    onPress={onDismiss}
-                    activeOpacity={0.8}
-                >
-                    <Text style={styles.buttonText}>Scan Next Student</Text>
-                    <FontAwesome5 name="arrow-right" size={16} color="white" style={{ marginLeft: 10 }} />
-                </TouchableOpacity>
             </Animated.View>
+
+            <Text style={styles.footerNote}>Hand the tablet to the next student</Text>
+
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
+        flex: 1,
+        backgroundColor: COLORS.backgroundLight,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    confettiContainer: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 100,
     },
-    successBg: {
+    confetti: {
         position: 'absolute',
-        width: width * 0.8,
-        height: width * 0.8,
-        borderRadius: width * 0.4,
-        backgroundColor: '#E8F5E9', // Light green
-        top: '15%',
     },
-    iconContainer: {
-        marginBottom: 30,
-        marginTop: -50,
-        shadowColor: "#4CAF50",
-        shadowOffset: {
-            width: 0,
-            height: 10,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 15,
+    card: {
+        width: '100%',
+        maxWidth: 380,
+        backgroundColor: COLORS.white,
+        borderRadius: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.1,
+        shadowRadius: 30,
         elevation: 10,
+        overflow: 'hidden',
     },
-    iconCircle: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        backgroundColor: '#4CAF50',
-        justifyContent: 'center',
+    cardHeader: {
+        height: 128,
+        backgroundColor: 'rgba(43, 140, 238, 0.1)', // primary/10
+        width: '100%',
         alignItems: 'center',
-        borderWidth: 5,
-        borderColor: 'white',
+        justifyContent: 'flex-start',
+        paddingTop: 24,
+        position: 'relative',
     },
-    contentContainer: {
-        width: '85%',
+    headerGradient: {
+        ...StyleSheet.absoluteFillObject,
+        opacity: 0.2,
+        // Gradient simulation not perfect without Expo Linear Gradient, but background color does the job mostly
+    },
+    successBadge: {
+        flexDirection: 'row',
         alignItems: 'center',
+        backgroundColor: COLORS.green100,
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        borderRadius: 20,
+        gap: 4,
     },
-    statusText: {
-        fontSize: 28,
-        fontWeight: '800',
-        color: '#2E7D32',
-        marginBottom: 30,
+    successBadgeText: {
+        color: COLORS.green700,
+        fontSize: 14,
+        fontWeight: 'bold',
         letterSpacing: 0.5,
     },
-    studentCard: {
-        flexDirection: 'row',
-        backgroundColor: 'white',
-        padding: 20,
+    heroSection: {
+        alignItems: 'center',
+        marginTop: -64,
+        paddingHorizontal: 24,
+    },
+    avatarContainer: {
+        position: 'relative',
+        marginBottom: 16,
+    },
+    avatarImage: {
+        width: 128,
+        height: 128,
+        borderRadius: 64,
+        borderWidth: 4,
+        borderColor: COLORS.white,
+        backgroundColor: COLORS.slate100,
+    },
+    checkBadge: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: COLORS.success,
+        width: 40,
+        height: 40,
         borderRadius: 20,
-        width: '100%',
         alignItems: 'center',
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        elevation: 5,
-        marginBottom: 25,
-    },
-    avatarPlaceholder: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: '#E3F2FD',
         justifyContent: 'center',
+        borderWidth: 4,
+        borderColor: COLORS.white,
+    },
+    studentNameTitle: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: COLORS.slate900,
+        textAlign: 'center',
+        marginTop: 4,
+    },
+    subText: {
+        fontSize: 18,
+        color: COLORS.slate500,
+        fontWeight: '500',
+        marginTop: 4,
+        textAlign: 'center',
+    },
+    timestampPill: {
+        flexDirection: 'row',
         alignItems: 'center',
-        marginRight: 15,
+        backgroundColor: COLORS.slate100,
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        borderRadius: 20,
+        marginTop: 16,
     },
-    avatarText: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#2196F3',
-    },
-    infoContainer: {
-        flex: 1,
-    },
-    studentName: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 4,
-    },
-    studentId: {
+    timestampText: {
+        color: COLORS.slate500,
         fontSize: 14,
-        color: '#666',
         fontWeight: '600',
-        marginBottom: 4,
     },
-    confidenceText: {
-        fontSize: 12,
-        color: '#4CAF50',
-        fontWeight: '600',
-        backgroundColor: '#E8F5E9',
-        alignSelf: 'flex-start',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
+    infoSection: {
+        padding: 24,
+        width: '100%',
+        gap: 16,
     },
-    timeContainer: {
+    scoreCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 40,
-        backgroundColor: '#F5F5F5',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 30,
+        justifyContent: 'space-between',
+        backgroundColor: 'rgba(43, 140, 238, 0.05)', // primary/5
+        borderWidth: 1,
+        borderColor: 'rgba(43, 140, 238, 0.1)',
+        borderRadius: 16,
+        padding: 16,
     },
-    timeText: {
-        fontSize: 16,
+    scoreLabel: {
+        fontSize: 14,
         fontWeight: '600',
-        color: '#444',
-        marginLeft: 8,
-        marginRight: 10,
+        color: COLORS.slate500,
     },
-    dateText: {
-        fontSize: 16,
-        color: '#888',
+    scoreValue: {
+        fontSize: 24,
+        fontWeight: '800',
+        color: COLORS.primary,
     },
-    button: {
-        backgroundColor: '#2196F3',
+    scoreIconCircle: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(43, 140, 238, 0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    doneButton: {
+        backgroundColor: COLORS.primary,
+        borderRadius: 16,
+        paddingVertical: 18,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 16,
-        paddingHorizontal: 40,
-        borderRadius: 30,
-        width: '100%',
-        shadowColor: "#2196F3",
-        shadowOffset: { width: 0, height: 4 },
+        gap: 8,
+        shadowColor: COLORS.blue200,
         shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 6,
+        shadowOffset: { width: 0, height: 4 },
+        shadowRadius: 10,
+        elevation: 5,
+        marginTop: 8,
     },
-    buttonText: {
+    doneButtonText: {
         color: 'white',
         fontSize: 18,
+        fontWeight: '800',
+    },
+    footerNote: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: COLORS.slate400,
+        marginTop: 32,
+        textAlign: 'center',
+    },
+    classesContainer: {
+        marginTop: 8,
+        gap: 12,
+    },
+    classesTitle: {
+        fontSize: 18,
         fontWeight: 'bold',
-    }
+        color: COLORS.slate900,
+        paddingHorizontal: 4,
+    },
+    classesGrid: {
+        flexDirection: 'row',
+        gap: 12,
+        justifyContent: 'space-between',
+    },
+    classItem: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        borderWidth: 1,
+    },
+    classIcon: {
+        padding: 8,
+        borderRadius: 999,
+    },
+    classText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: COLORS.slate500,
+        textAlign: 'center',
+    },
 });
