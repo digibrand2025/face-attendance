@@ -1,8 +1,30 @@
+// Add to existing types
 export interface Student {
   studentId: string;
   studentName: string;
   class?: string;
   instituteId?: string;
+  photoUrl?: string;
+  isPartTimeToday?: boolean;
+  checkInTime?: string;
+  admissionNo?: string;
+  email?: string;
+}
+
+export interface AttendanceRecord {
+  success: boolean;
+  message: string;
+  already_marked?: boolean;
+  student?: {
+    id: string;
+    name: string;
+    photo_url: string;
+    is_part_time_today?: boolean;
+    check_in_time?: string;
+    confidence?: number;
+    first_check_in?: string;
+  };
+  error?: string;
 }
 
 export interface EnrollResponse {

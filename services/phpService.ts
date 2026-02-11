@@ -1,47 +1,115 @@
 import axios from 'axios';
 import { Config } from '../constants/Config';
-import { AttendanceResponse, Student } from '../types';
 
 /**
- * Service to interact with PHP Backend
- * Note: Endpoints are placeholders and need to be updated with actual server URL
+ * Service to interact with PHP backend APIs
  */
 
+// Define PHP API response types
+export interface MarkAttendanceResponse {
+    success: boolean;
+    message: string;
+    already_marked?: boolean;
+    student?: {
+        id: string;
+        name: string;
+        photo_url: string;
+        is_part_time_today?: boolean;
+        check_in_time?: string;
+        confidence?: number;
+        first_check_in?: string;
+    };
+    error?: string;
+}
+
+export interface StudentDetailsResponse {
+    success: boolean;
+    student?: {
+        id: string;
+        name: string;
+        photo_url: string;
+        admission_no?: string;
+        email?: string;
+    };
+    error?: string;
+}
+
+/**
+ * Mark attendance in PHP database after face recognition
+ */
 export const markAttendance = async (
     studentId: string,
-    confidence: number,
-    timestamp: string,
-    instituteId: string
-): Promise<AttendanceResponse> => {
+    confidence: number
+): Promise<MarkAttendanceResponse> => {
     try {
-        const response = await axios.post(Config.PHP_API.MARK_ATTENDANCE, {
-            studentId,
-            confidence,
-            timestamp,
-            instituteId
-        }, {
-            timeout: Config.REQUEST_TIMEOUT
+        console.log(`Marking attendance for student ${studentId} with confidence ${confidence}%`);
+
+        const response = await axios.post(
+            Config.PHP_API.MARK_ATTENDANCE,
+            {
+                student_id: studentId,
+                confidence: confidence
+            },
+            {
+                timeout: Config.REQUEST_TIMEOUT,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        console.log('Attendance marked successfully:', response.data);
+        return response.data;
+
+    } catch (error: any) {
+        console.error('Mark Attendance Error:', {
+            message: error.message,
+            status: error.response?.status,
+            data: error.response?.data
         });
 
-        return response.data;
-    } catch (error: any) {
-        console.error('Attendance Mark Error:', error);
         return {
             success: false,
-            message: 'Failed to mark attendance',
-            error: error.message || 'Unknown error'
+            message: error.response?.data?.error || 'Failed to mark attendance',
+            error: error.response?.data?.error || error.message
         };
     }
 };
 
-export const getStudents = async (instituteId: string): Promise<Student[]> => {
+/**
+ * Get student photo URL
+ */
+export const getStudentPhotoUrl = (studentId: string): string => {
+    return `${Config.PHP_API.BASE_URL}/public_download.php?student_id=${studentId}`;
+};
+
+/**
+ * Bulk enroll students to AWS from PHP database
+ */
+export const bulkEnrollToAWS = async (
+    studentIds: number[]
+): Promise<any> => {
     try {
-        const response = await axios.get(`${Config.PHP_API.GET_STUDENTS}?instituteId=${instituteId}`, {
-            timeout: Config.REQUEST_TIMEOUT
-        });
+        console.log(`Bulk enrolling ${studentIds.length} students to AWS...`);
+
+        const response = await axios.post(
+            Config.PHP_API.ENROLL_TO_AWS,
+            {
+                student_ids: studentIds
+            },
+            {
+                timeout: 60000, // 60 seconds for bulk operations
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        console.log('Bulk enrollment result:', response.data);
         return response.data;
-    } catch (error) {
-        console.error('Get Students Error:', error);
-        return [];
+
+    } catch (error: any) {
+        console.error('Bulk Enrollment Error:', error.response?.data || error.message);
+        throw error;
     }
 };

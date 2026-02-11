@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Vibration } from 'react-native';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
 import CameraComponent from '../../components/CameraComponent';
-import StudentCard from '../../components/StudentCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import RecognitionSuccessResult from '../../components/RecognitionSuccessResult';
-import { recognizeFace } from '../../services/lambdaService';
-// import { markAttendance } from '../../services/phpService';
 import { Config } from '../../constants/Config';
-import { Student } from '../../types';
-import { FontAwesome5 } from '@expo/vector-icons';
+import { recognizeFace } from '../../services/lambdaService';
+import { markAttendance } from '../../services/phpService';
+import { AttendanceRecord, Student } from '../../types';
 
 export default function AttendanceScreen() {
     const isFocused = useIsFocused();
@@ -18,12 +17,14 @@ export default function AttendanceScreen() {
     const [recognizedStudent, setRecognizedStudent] = useState<Student | null>(null);
     const [confidenceInfo, setConfidenceInfo] = useState<number>(0);
     const [errorCount, setErrorCount] = useState(0);
+    const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
 
     // Reset to camera when leaving screen and coming back
     useEffect(() => {
         if (isFocused) {
             setViewState('camera');
             setRecognizedStudent(null);
+            setAttendanceRecord(null);
         }
     }, [isFocused]);
 
@@ -31,194 +32,162 @@ export default function AttendanceScreen() {
         setViewState('processing');
 
         try {
-            // 1. Recognize Face
+            // 1. Recognize Face via AWS Lambda
             const recognition = await recognizeFace(uri);
 
             if (recognition.success && recognition.recognized && recognition.studentId) {
                 const conf = recognition.confidence || 0;
                 setConfidenceInfo(conf);
 
-                // Mock student data lookup
-                const MOCK_STUDENTS: { [key: string]: string } = {
-                    '1': 'Nisal Weerarathne',
-                    '2': 'Lakshan Chathuranga'
-                };
-
-                const studentName = MOCK_STUDENTS[recognition.studentId] || 'Student ' + recognition.studentId;
-
-                const studentData: Student = {
-                    studentId: recognition.studentId,
-                    studentName: studentName,
-                    instituteId: Config.DEFAULT_INSTITUTE_ID
-                };
-
-                setRecognizedStudent(studentData);
-
-                // 2. Mark Attendance
+                // 2. Mark Attendance via PHP API
                 if (conf >= Config.CONFIDENCE_THRESHOLD) {
-                    await processAttendance(studentData, conf);
+                    await processAttendance(recognition.studentId, conf);
                 } else {
-                    setResultMessage('Low confidence. Please verify.');
+                    setResultMessage(`Low confidence (${conf.toFixed(1)}%). Please try again.`);
                     setViewState('result');
                 }
+            } else {
+                // Face not recognized
+                setResultMessage(recognition.message || 'Face not recognized. Please enroll first.');
+                setViewState('result');
+                setErrorCount(prev => prev + 1);
+            }
+
+        } catch (error: any) {
+            console.error('Capture Error:', error);
+            setResultMessage('An error occurred. Please try again.');
+            setViewState('result');
+            setErrorCount(prev => prev + 1);
+        }
+    };
+
+    const processAttendance = async (studentId: string, confidence: number) => {
+        try {
+            // Call PHP API to mark attendance
+            const result = await markAttendance(studentId, confidence);
+
+            if (result.success) {
+                // Successfully marked attendance
+                Vibration.vibrate(200); // Success vibration
+
+                const student: Student = {
+                    studentId: result.student?.id || studentId,
+                    studentName: result.student?.name || `Student ${studentId}`,
+                    photoUrl: result.student?.photo_url,
+                    isPartTimeToday: result.student?.is_part_time_today,
+                    checkInTime: result.student?.check_in_time
+                };
+
+                setRecognizedStudent(student);
+                setAttendanceRecord(result);
+                setResultMessage(result.message);
+                setViewState('result');
+
+            } else if (result.already_marked) {
+                // Already checked in today
+                Vibration.vibrate([100, 50, 100]); // Double vibration for duplicate
+
+                const student: Student = {
+                    studentId: result.student?.id || studentId,
+                    studentName: result.student?.name || `Student ${studentId}`,
+                    photoUrl: result.student?.photo_url,
+                    checkInTime: result.student?.first_check_in
+                };
+
+                setRecognizedStudent(student);
+                setAttendanceRecord(result);
+                setResultMessage(result.message || 'Already checked in today');
+                setViewState('result');
 
             } else {
-                setResultMessage(recognition.message || 'Face not recognized');
-                setErrorCount(prev => prev + 1);
+                // Failed to mark attendance
+                setResultMessage(result.error || 'Failed to mark attendance');
                 setViewState('result');
             }
-        } catch (error) {
-            setResultMessage('An error occurred during recognition');
+
+        } catch (error: any) {
+            console.error('Attendance Error:', error);
+            setResultMessage('Failed to record attendance. Please try again.');
             setViewState('result');
         }
     };
 
-    const processAttendance = async (student: Student, confidence: number) => {
-        // PHP Service Disabled for now
-        /*
-        const markRes = await markAttendance(
-            student.studentId,
-            confidence,
-            new Date().toISOString(),
-            student.instituteId || Config.DEFAULT_INSTITUTE_ID
-        );
-        */
-
-        console.log('PHP Service Disabled: Attendance marking skipped for', student.studentId);
-
-        // Mock success for UI feedback
-        const markRes = { success: true };
-
-        if (markRes.success) {
-            setResultMessage('Attendance Marked (Offline) ✅');
-            Vibration.vibrate(100);
-        } else {
-            setResultMessage('Recognized, but failed to mark attendance ❌');
-        }
-        setViewState('result');
-
-        // Auto reset after 3 seconds
-        // Auto reset timeout removed to allow user to view the success animation
-        // User will manually click "Scan Next"
-        /* 
-        setTimeout(() => {
-            if (isFocused) {
-                setViewState('camera');
-                setRecognizedStudent(null);
-            }
-        }, 3000); 
-        */
+    const handleRetry = () => {
+        setViewState('camera');
+        setRecognizedStudent(null);
+        setAttendanceRecord(null);
+        setResultMessage('');
     };
 
-    if (viewState === 'camera') {
+    // Render based on state
+    if (viewState === 'processing') {
+        return <LoadingOverlay visible={true} message="Processing face recognition..." />;
+    }
+
+    if (viewState === 'result') {
         return (
-            <View style={{ flex: 1 }}>
-                <CameraComponent
-                    onCapture={handleCapture}
-                    buttonLabel="Scan Face"
-                />
-                <View style={styles.overlayTextContainer}>
-                    <Text style={styles.overlayText}>Position face within frame</Text>
-                </View>
+            <View style={styles.container}>
+                {recognizedStudent && attendanceRecord?.success ? (
+                    <RecognitionSuccessResult
+                        student={recognizedStudent}
+                        confidence={confidenceInfo}
+                        message={resultMessage}
+                        alreadyMarked={attendanceRecord.already_marked || false}
+                        isPartTime={recognizedStudent.isPartTimeToday || false}
+                        checkInTime={recognizedStudent.checkInTime}
+                        onDone={handleRetry}
+                    />
+                ) : (
+                    <View style={styles.errorContainer}>
+                        <FontAwesome5 name="exclamation-circle" size={64} color="#f44336" />
+                        <Text style={styles.errorText}>{resultMessage}</Text>
+                        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+                            <Text style={styles.retryButtonText}>Try Again</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
         );
     }
 
+    // Default: Camera view
     return (
-        <View style={styles.container}>
-            {viewState === 'processing' && (
-                <LoadingOverlay visible={true} message="Recognizing..." />
-            )}
-
-            {viewState === 'result' && recognizedStudent && (
-                <RecognitionSuccessResult
-                    student={recognizedStudent}
-                    confidence={confidenceInfo}
-                    onDismiss={() => {
-                        setViewState('camera');
-                        setRecognizedStudent(null);
-                    }}
-                />
-            )}
-
-            {viewState === 'result' && !recognizedStudent && (
-                <View style={styles.resultContainer}>
-                    <View style={styles.iconContainer}>
-                        <FontAwesome5 name="times-circle" size={80} color="#F44336" />
-                    </View>
-
-                    <Text style={styles.resultTitle}>Not Recognized</Text>
-                    <Text style={styles.resultDetails}>{resultMessage}</Text>
-
-                    <View style={styles.actions}>
-                        <TouchableOpacity style={styles.retryButton} onPress={() => setViewState('camera')}>
-                            <Text style={styles.buttonText}>Try Again</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-        </View>
+        <CameraComponent
+            onCapture={handleCapture}
+            onCancel={() => { }}
+            buttonLabel="Capture Face"
+        />
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-        padding: 20,
+        backgroundColor: '#f5f5f5'
     },
-    overlayTextContainer: {
-        position: 'absolute',
-        top: 60,
-        width: '100%',
-        alignItems: 'center',
-    },
-    overlayText: {
-        color: 'white',
-        fontSize: 18,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        padding: 10,
-        borderRadius: 20,
-        overflow: 'hidden',
-    },
-    resultContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
+    errorContainer: {
         flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: '#fff'
     },
-    iconContainer: {
-        marginBottom: 20,
-    },
-    resultTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 10,
+    errorText: {
+        fontSize: 18,
         color: '#333',
-    },
-    resultDetails: {
-        fontSize: 16,
-        color: '#666',
-        marginBottom: 30,
         textAlign: 'center',
-    },
-    actions: {
-        flexDirection: 'row',
         marginTop: 20,
+        marginBottom: 30
     },
     retryButton: {
         backgroundColor: '#2196F3',
-        paddingHorizontal: 30,
+        paddingHorizontal: 40,
         paddingVertical: 15,
-        borderRadius: 8,
-        marginHorizontal: 10,
+        borderRadius: 8
     },
-    confirmButton: {
-        backgroundColor: '#4CAF50',
-    },
-    buttonText: {
-        color: 'white',
+    retryButtonText: {
+        color: '#fff',
         fontSize: 16,
-        fontWeight: '600',
-    },
+        fontWeight: 'bold'
+    }
 });

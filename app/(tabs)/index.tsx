@@ -1,13 +1,16 @@
 import {
   Feather,
+  FontAwesome5,
   Ionicons,
   MaterialCommunityIcons
 } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -28,49 +31,60 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import RecognitionSuccessResult from '../../components/RecognitionSuccessResult';
+import RecognitionUnknownResult from '../../components/RecognitionUnknownResult';
+import { PALETTE } from '../../constants/Colors';
 import { recognizeFace } from '../../services/lambdaService';
+import { markAttendance } from '../../services/phpService';
 import { Student } from '../../types';
 
 // --- Configuration ---
 const { width } = Dimensions.get('window');
 
-// --- Colors ---
+// --- Playful Colors ---
 const COLORS = {
+  yellow: '#FCD34D', // Amber 300
+  orange: '#fb923c', // Orange 400
+  blue: '#60a5fa',   // Blue 400
+  blueDark: '#2563eb', // Blue 600
+  pink: '#f472b6',   // Pink 400
+  green: '#4ade80',  // Green 400
+  greenDark: '#16a34a', // Green 600
   green50: '#f0fdf4',
-  green100: '#dcfce7',
-  green400: '#4ade80',
-  green500: '#22c55e',
-  green600: '#16a34a',
-  blue50: '#eff6ff',
-  blue100: '#dbeafe',
-  blue200: '#bfdbfe',
-  blue400: '#60a5fa',
-  blue600: '#2563eb',
-  yellow50: '#fefce8',
-  yellow200: '#fef08a',
-  yellow300: '#fde047',
-  yellow400: '#facc15',
-  yellow700: '#a16207',
-  orange400: '#fb923c',
-  pink200: '#fbcfe8',
-  pink500: '#ec4899',
-  slate400: '#94a3b8',
-  slate500: '#64748b',
-  slate600: '#475569',
-  slate700: '#334155',
-  slate800: '#1e293b',
-  slate900: '#0f172a',
+  purple: '#c084fc', // Purple 400
   white: '#ffffff',
-  bgMain: '#F0F9FF',
+  slateDark: '#1e293b',
+  slateMedium: '#64748b',
+  slate400: '#94a3b8',
+  bgMain: '#F0F9FF', // Sky 50
+
+  // Accents
+  accentGradientStart: '#60a5fa',
+  accentGradientEnd: '#2563eb',
+};
+
+const TAB_BAR_STYLES = {
+  backgroundColor: '#ffffff',
+  borderTopWidth: 0,
+  elevation: 10,
+  shadowColor: PALETTE.blue200,
+  shadowOpacity: 0.3,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: -2 },
+  height: Platform.OS === 'ios' ? 90 : 70,
+  paddingBottom: Platform.OS === 'ios' ? 30 : 12,
+  paddingTop: 12,
 };
 
 export default function HomeScreen() {
+  const navigation = useNavigation();
+  const [isTabBarVisible, setIsTabBarVisible] = useState(true);
   const [time, setTime] = useState(new Date());
-  const [status, setStatus] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'scanning' | 'success' | 'error' | 'already_marked' | 'unknown_student_db' | 'unknown_face_aws'>('idle');
   const [showMascotTip, setShowMascotTip] = useState(true);
   const [recognizedStudent, setRecognizedStudent] = useState<Student | null>(null);
   const [confidenceInfo, setConfidenceInfo] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [facing, setFacing] = useState<'front' | 'back'>('front');
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -92,8 +106,8 @@ export default function HomeScreen() {
     ), -1, true);
 
     pulseVal.value = withRepeat(withSequence(
-      withTiming(0.5, { duration: 1000 }),
-      withTiming(1, { duration: 1000 })
+      withTiming(0.8, { duration: 1500 }),
+      withTiming(1, { duration: 1500 })
     ), -1, true);
 
     bounceVal.value = withRepeat(withSequence(
@@ -148,34 +162,81 @@ export default function HomeScreen() {
           const conf = recognition.confidence || 0;
           setConfidenceInfo(conf);
 
-          // Mock student data lookup
-          const MOCK_STUDENTS: { [key: string]: string } = {
-            '1': 'Nisal Weerarathne',
-            '2': 'Lakshan Chathuranga'
-          };
-
-          const studentName = MOCK_STUDENTS[recognition.studentId] || 'Student ' + recognition.studentId;
-
-          const studentData: Student = {
-            studentId: recognition.studentId,
-            studentName: studentName,
-            instituteId: 'default'
-          };
-
-          setRecognizedStudent(studentData);
-          setStatus('success');
-          Vibration.vibrate(100);
+          await processAttendance(recognition.studentId, conf);
 
         } else {
-          setErrorMessage(recognition.message || 'Face not recognized');
-          setStatus('error');
-          setTimeout(() => setStatus('idle'), 3000);
+          // Face detected but not recognized in AWS collection
+          setStatus('unknown_face_aws');
         }
       }
     } catch (error) {
       console.error('Snap error:', error);
       scanVal.value = 0;
       setErrorMessage('An error occurred during recognition');
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 3000);
+    }
+  };
+
+  const toggleCameraFacing = () => {
+    setFacing(current => (current === 'front' ? 'back' : 'front'));
+  };
+
+  const toggleTabBar = () => {
+    const newState = !isTabBarVisible;
+    setIsTabBarVisible(newState);
+    navigation.setOptions({
+      tabBarStyle: newState ? TAB_BAR_STYLES : { display: 'none' }
+    });
+  };
+
+  const processAttendance = async (studentId: string, conf: number) => {
+    try {
+      const result = await markAttendance(studentId, conf);
+
+      if (result.success) {
+        Vibration.vibrate(200);
+
+        const student: Student = {
+          studentId: result.student?.id || studentId,
+          studentName: result.student?.name || `Student ${studentId}`,
+          photoUrl: result.student?.photo_url,
+          isPartTimeToday: result.student?.is_part_time_today,
+          checkInTime: result.student?.check_in_time
+        };
+
+        setRecognizedStudent(student);
+        setStatus('success');
+
+      } else if (result.already_marked) {
+        Vibration.vibrate([100, 50, 100]);
+
+        const student: Student = {
+          studentId: result.student?.id || studentId,
+          studentName: result.student?.name || `Student ${studentId}`,
+          photoUrl: result.student?.photo_url,
+          checkInTime: result.student?.first_check_in
+        };
+
+        setRecognizedStudent(student);
+        setErrorMessage(result.message || 'Already checked in');
+        setStatus('already_marked');
+
+      } else {
+        // Check if error implies student not found in PHP database
+        const err = result.error || result.message || '';
+        if (err.toLowerCase().includes('not found') || err.toLowerCase().includes('does not exist')) {
+          setStatus('unknown_student_db');
+        } else {
+          setErrorMessage(result.error || 'Failed to mark attendance');
+          setStatus('error');
+          setTimeout(() => setStatus('idle'), 3000);
+        }
+      }
+
+    } catch (error: any) {
+      console.error('Attendance Error:', error);
+      setErrorMessage('Failed to record attendance');
       setStatus('error');
       setTimeout(() => setStatus('idle'), 3000);
     }
@@ -208,15 +269,36 @@ export default function HomeScreen() {
   }));
 
   // --- Render Success Screen ---
-  if (status === 'success' && recognizedStudent) {
+  if ((status === 'success' || status === 'already_marked') && recognizedStudent) {
     return (
       <RecognitionSuccessResult
         student={recognizedStudent}
         confidence={confidenceInfo}
-        onDismiss={() => {
+        message="Attendance Marked Successfully!"
+        alreadyMarked={status === 'already_marked'}
+        isPartTime={recognizedStudent.isPartTimeToday}
+        checkInTime={recognizedStudent.checkInTime}
+        onDone={() => {
           setStatus('idle');
           setRecognizedStudent(null);
         }}
+      />
+    );
+  }
+
+  // --- Render Unknown Student Screen ---
+  if (status === 'unknown_student_db' || status === 'unknown_face_aws') {
+    const isDbMismatch = status === 'unknown_student_db';
+    return (
+      <RecognitionUnknownResult
+        onRetry={() => setStatus('idle')}
+        title={isDbMismatch ? "Unknown Student Profile" : "Who goes there?"}
+        message={
+          isDbMismatch
+            ? "Your face is recognized, but your details are missing from the school database."
+            : "I can see your face, but I don't know your name yet!"
+        }
+        iconName={isDbMismatch ? "account-question" : "robot-confused"}
       />
     );
   }
@@ -233,42 +315,55 @@ export default function HomeScreen() {
 
       {/* Background Elements */}
       <Animated.View style={[styles.bgCloud, bounceStyle]}>
-        <Ionicons name="cloud" size={64} color={COLORS.blue200} />
+        <Ionicons name="cloud" size={80} color={COLORS.blue} style={{ opacity: 0.2 }} />
       </Animated.View>
       <Animated.View style={[styles.bgSun, pulseStyle]}>
-        <Ionicons name="sunny" size={80} color={COLORS.yellow300} />
+        <Ionicons name="sunny" size={100} color={COLORS.yellow} style={{ opacity: 0.8 }} />
       </Animated.View>
 
       {/* Particles */}
       <Animated.View style={[styles.particleStar1, spinStyle]}>
-        <Ionicons name="star" size={24} color={COLORS.yellow200} />
+        <FontAwesome5 name="star" size={28} color={COLORS.yellow} />
       </Animated.View>
       <Animated.View style={[styles.particleHeart, bounceStyle]}>
-        <Ionicons name="heart" size={20} color={COLORS.pink200} />
+        <FontAwesome5 name="heart" size={24} color={COLORS.pink} />
       </Animated.View>
       <Animated.View style={[styles.particleStar2, pulseStyle]}>
-        <Ionicons name="star" size={16} color={COLORS.blue200} />
+        <FontAwesome5 name="star" size={18} color={COLORS.blue} />
       </Animated.View>
 
       {/* Main Scroll Content */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
             <Animated.View style={[styles.logoBox, wiggleStyle]}>
-              <MaterialCommunityIcons name="school" size={32} color="white" />
+              <MaterialCommunityIcons name="rocket-launch" size={32} color="white" />
             </Animated.View>
             <View>
-              <Text style={styles.appTitle}>INFINITE MINDS</Text>
+              <Text style={styles.appTitle}>Attendance Hero</Text>
               <View style={styles.statusPill}>
                 <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Ready to Play!</Text>
+                <Text style={styles.statusText}>Ready to Zoom!</Text>
               </View>
             </View>
           </View>
-          <View style={styles.timeBlock}>
-            <Text style={styles.timeValue}>{formatTime(time)}</Text>
-            <Text style={styles.dateValue}>{formatDate(time)}</Text>
+          <View style={styles.headerRight}>
+            <View style={styles.timeBlock}>
+              <Text style={styles.timeValue}>{formatTime(time)}</Text>
+              <Text style={styles.dateValue}>{formatDate(time)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.navToggleBtn}
+              onPress={toggleTabBar}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={isTabBarVisible ? "expand-outline" : "contract-outline"}
+                size={24}
+                color={COLORS.slateMedium}
+              />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -276,15 +371,15 @@ export default function HomeScreen() {
 
           {/* Welcome */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeTitle}>Hiya, Superstar! 🌟</Text>
-            <Text style={styles.welcomeSubtitle}>Let's find your smile today!</Text>
+            <Text style={styles.welcomeTitle}>Hello, Explorer! 🚀</Text>
+            <Text style={styles.welcomeSubtitle}>Show me your biggest smile!</Text>
           </View>
 
           {/* Mascot */}
           <View style={styles.mascotContainer}>
             {showMascotTip && (
               <Animated.View entering={FadeIn.delay(300)} style={[styles.mascotTooltip, bounceStyle]}>
-                <Text style={styles.tooltipText}>Peek into the Magic Mirror, friend!</Text>
+                <Text style={styles.tooltipText}>Look here for magic!</Text>
                 <View style={styles.tooltipArrow} />
               </Animated.View>
             )}
@@ -293,9 +388,9 @@ export default function HomeScreen() {
               activeOpacity={0.9}
             >
               <Animated.View style={[styles.mascotCircle, wiggleStyle]}>
-                <MaterialCommunityIcons name="bird" size={48} color="white" />
+                <MaterialCommunityIcons name="robot-happy" size={48} color="white" />
                 <View style={styles.mascotBadge}>
-                  <Feather name="smile" size={12} color="white" />
+                  <Feather name="zap" size={14} color="white" />
                 </View>
               </Animated.View>
             </TouchableOpacity>
@@ -303,6 +398,7 @@ export default function HomeScreen() {
 
           {/* Magic Mirror (Camera) with Integrated Button */}
           <View style={styles.mirrorContainer}>
+            {/* Glow Effect */}
             <View style={styles.mirrorGlow} />
 
             <View style={styles.mirrorFrame}>
@@ -310,20 +406,20 @@ export default function HomeScreen() {
               {permission?.granted ? (
                 <CameraView
                   style={StyleSheet.absoluteFill}
-                  facing="front"
+                  facing={facing}
                   ref={cameraRef}
                 />
               ) : (
                 <LinearGradient
-                  colors={[COLORS.slate800, COLORS.slate900]}
+                  colors={[COLORS.slateDark, '#334155']}
                   style={styles.mirrorInner}
                 >
                   <View style={styles.placeholderContent}>
                     <TouchableOpacity onPress={requestPermission} style={{ alignItems: 'center' }}>
                       <View style={styles.cameraIconCircle}>
-                        <Feather name="camera-off" size={40} color={COLORS.slate500} />
+                        <Feather name="camera-off" size={40} color={COLORS.slateMedium} />
                       </View>
-                      <Text style={styles.mirrorText}>Tap to Enable</Text>
+                      <Text style={styles.mirrorText}>Tap to Start Magic</Text>
                     </TouchableOpacity>
                   </View>
                 </LinearGradient>
@@ -331,15 +427,25 @@ export default function HomeScreen() {
 
               {/* Overlays */}
               <View style={styles.overlayContainer} pointerEvents="none">
-                <Animated.View style={[styles.dashedCircle, status === 'scanning' ? fastSpinStyle : spinStyle]} />
-                <Animated.View style={[styles.scanLine, scanLineStyle]} />
+                {/* Face Guide Frame */}
+                <View style={styles.faceGuideFrame}>
+                  <View style={[styles.guideCorner, { top: 0, left: 0, borderTopWidth: 6, borderLeftWidth: 6 }]} />
+                  <View style={[styles.guideCorner, { top: 0, right: 0, borderTopWidth: 6, borderRightWidth: 6 }]} />
+                  <View style={[styles.guideCorner, { bottom: 0, left: 0, borderBottomWidth: 6, borderLeftWidth: 6 }]} />
+                  <View style={[styles.guideCorner, { bottom: 0, right: 0, borderBottomWidth: 6, borderRightWidth: 6 }]} />
+                </View>
               </View>
 
-              {/* Decorative Corners */}
-              <View style={[styles.corner, styles.cornerTL]} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
+              {/* Camera Switch Button */}
+              {permission?.granted && (
+                <TouchableOpacity
+                  style={styles.cameraSwitchButton}
+                  onPress={toggleCameraFacing}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="camera-reverse" size={22} color="white" />
+                </TouchableOpacity>
+              )}
 
             </View>
 
@@ -348,23 +454,29 @@ export default function HomeScreen() {
               <TouchableOpacity
                 onPress={handleSnap}
                 disabled={status === 'scanning' || !permission?.granted}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
                 style={[styles.snapButton, (status === 'scanning' || !permission?.granted) && styles.snapButtonDisabled]}
               >
                 <LinearGradient
-                  colors={[COLORS.blue400, COLORS.blue600]}
+                  colors={[COLORS.blue, COLORS.blueDark]}
                   style={styles.snapButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                 >
-                  <Feather name="smile" size={28} color="white" />
-                  <Text style={styles.snapButtonText}>SNAP MY PHOTO!</Text>
+                  <Feather name="camera" size={32} color="white" />
+                  <Text style={styles.snapButtonText}>TAKE PHOTO!</Text>
                 </LinearGradient>
+                {/* Button Shadow Layer */}
+                <View style={styles.snapButtonShadow} />
               </TouchableOpacity>
             </View>
 
           </View>
 
           <TouchableOpacity style={styles.helpLink}>
-            <Feather name="help-circle" size={18} color={COLORS.slate400} />
+            <View style={styles.helpIconBg}>
+              <Feather name="life-buoy" size={16} color="white" />
+            </View>
             <Text style={styles.helpLinkText}>Teacher, I need help!</Text>
           </TouchableOpacity>
 
@@ -392,11 +504,11 @@ const styles = StyleSheet.create({
   },
 
   // Background Elements
-  bgCloud: { position: 'absolute', top: 40, left: 40, opacity: 0.8 },
-  bgSun: { position: 'absolute', top: 80, right: 40, opacity: 0.8 },
-  particleStar1: { position: 'absolute', top: '15%', left: 20, opacity: 0.5 },
-  particleHeart: { position: 'absolute', top: '20%', right: 32, opacity: 0.5 },
-  particleStar2: { position: 'absolute', bottom: '30%', left: 40, opacity: 0.5 },
+  bgCloud: { position: 'absolute', top: 40, left: 40 },
+  bgSun: { position: 'absolute', top: 60, right: 30 },
+  particleStar1: { position: 'absolute', top: '15%', left: 20, opacity: 0.6 },
+  particleHeart: { position: 'absolute', top: '20%', right: 32, opacity: 0.6 },
+  particleStar2: { position: 'absolute', bottom: '30%', left: 40, opacity: 0.6 },
 
   // Header
   header: {
@@ -405,166 +517,157 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 10,
     paddingHorizontal: 24,
-    marginBottom: 20,
+    marginBottom: 10,
     width: '100%',
     zIndex: 20,
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logoBox: {
-    width: 56, height: 56, backgroundColor: COLORS.orange400,
-    borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    width: 60, height: 60, backgroundColor: COLORS.purple,
+    borderRadius: 20, alignItems: 'center', justifyContent: 'center',
     borderWidth: 4, borderColor: 'white',
-    shadowColor: COLORS.orange400, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    shadowColor: COLORS.purple, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
     elevation: 5,
   },
-  appTitle: { fontSize: 20, fontWeight: '900', color: COLORS.slate800, letterSpacing: -0.5 },
-  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  statusDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.green400, borderWidth: 2, borderColor: 'white' },
-  statusText: { fontSize: 10, fontWeight: '700', color: COLORS.green600, textTransform: 'uppercase', letterSpacing: 1 },
+  appTitle: { fontSize: 22, fontWeight: '900', color: COLORS.slateDark, letterSpacing: -0.5 },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
+    backgroundColor: COLORS.green50, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.green
+  },
+  statusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.green, borderWidth: 2, borderColor: 'white' },
+  statusText: { fontSize: 11, fontWeight: '800', color: COLORS.greenDark, textTransform: 'uppercase', letterSpacing: 0.5 },
   timeBlock: { alignItems: 'flex-end' },
-  timeValue: { fontSize: 24, fontWeight: '900', color: COLORS.slate800 },
-  dateValue: { fontSize: 10, fontWeight: '700', color: COLORS.slate400, textTransform: 'uppercase', marginTop: 2 },
+  timeValue: { fontSize: 20, fontWeight: '900', color: COLORS.slateDark },
+  dateValue: { fontSize: 11, fontWeight: '700', color: COLORS.slateMedium, textTransform: 'uppercase', marginTop: 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  navToggleBtn: {
+    padding: 8,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2
+  },
 
   // Welcome
-  welcomeSection: { alignItems: 'center', marginBottom: 16 },
-  welcomeTitle: { fontSize: 28, fontWeight: '900', color: COLORS.slate800, marginBottom: 4 },
-  welcomeSubtitle: { fontSize: 14, fontWeight: '700', color: COLORS.slate500 },
+  welcomeSection: { alignItems: 'center', marginBottom: 20, marginTop: 10 },
+  welcomeTitle: { fontSize: 32, fontWeight: '900', color: COLORS.slateDark, marginBottom: 4, textAlign: 'center' },
+  welcomeSubtitle: { fontSize: 16, fontWeight: '700', color: COLORS.slateMedium, textAlign: 'center' },
 
   // Mascot
-  mascotContainer: { alignItems: 'center', alignSelf: 'flex-end', marginRight: 30, marginBottom: 16, zIndex: 20 },
+  mascotContainer: { alignItems: 'center', alignSelf: 'flex-end', marginRight: 20, marginBottom: 10, zIndex: 30 },
   mascotTooltip: {
-    position: 'absolute', top: -50, backgroundColor: 'white', padding: 12,
-    borderRadius: 20, borderWidth: 2, borderColor: COLORS.blue100,
-    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5
+    position: 'absolute', top: -45, right: 10, backgroundColor: 'white', padding: 12,
+    borderRadius: 20, borderWidth: 3, borderColor: COLORS.blue,
+    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5,
+    minWidth: 140,
   },
-  tooltipText: { fontSize: 11, fontWeight: '900', color: COLORS.blue600, textAlign: 'center' },
+  tooltipText: { fontSize: 13, fontWeight: '800', color: COLORS.blueDark, textAlign: 'center' },
   tooltipArrow: {
-    position: 'absolute', bottom: -8, left: 20, width: 16, height: 16,
-    backgroundColor: 'white', borderBottomWidth: 2, borderRightWidth: 2,
-    borderColor: COLORS.blue100, transform: [{ rotate: '45deg' }]
+    position: 'absolute', bottom: -8, right: 20, width: 16, height: 16,
+    backgroundColor: 'white', borderBottomWidth: 3, borderRightWidth: 3,
+    borderColor: COLORS.blue, transform: [{ rotate: '45deg' }]
   },
   mascotCircle: {
-    backgroundColor: COLORS.yellow400, padding: 12, borderRadius: 999,
+    backgroundColor: COLORS.orange, padding: 12, borderRadius: 999,
     borderWidth: 4, borderColor: 'white',
-    shadowColor: COLORS.yellow400, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8
+    shadowColor: COLORS.orange, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8
   },
   mascotBadge: {
-    position: 'absolute', bottom: -4, right: -4, backgroundColor: COLORS.pink500,
-    padding: 6, borderRadius: 999, borderWidth: 2, borderColor: 'white'
+    position: 'absolute', bottom: -4, right: -4, backgroundColor: COLORS.green,
+    padding: 6, borderRadius: 999, borderWidth: 3, borderColor: 'white'
   },
 
   // Mirror
-  mirrorContainer: { position: 'relative', alignItems: 'center', marginBottom: 16 },
+  mirrorContainer: { position: 'relative', alignItems: 'center', marginBottom: 20 },
   mirrorGlow: {
     position: 'absolute',
-    top: -20,
-    left: 0,
-    right: 0,
-    bottom: 60, // Reduces height from bottom
-    backgroundColor: COLORS.blue400,
-    borderRadius: 50,
-    opacity: 0.2,
+    top: -20, left: -20, right: -20, bottom: 250,
+    backgroundColor: COLORS.blue,
+    borderRadius: 60,
+    opacity: 0.1,
     transform: [{ scale: 1.05 }]
   },
   mirrorFrame: {
     width: width - 48,
-    height: (width - 48) * 1.2, // Portrait size - taller than wide
-    maxWidth: 350, maxHeight: 420,
-    backgroundColor: COLORS.slate900, borderRadius: 48,
-    borderWidth: 12, borderColor: 'white',
+    height: (width - 48) * 1.25, // Portrait size
+    maxWidth: 350, maxHeight: 440,
+    backgroundColor: 'white', borderRadius: 48,
+    borderWidth: 8, borderColor: 'white', // White inner border
+    // External colored border handled by container or shadow
+    shadowColor: COLORS.blue, shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
     overflow: 'hidden',
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 0, height: 10 },
-    elevation: 10
   },
   mirrorInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   placeholderContent: { alignItems: 'center' },
   cameraIconCircle: {
-    width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.slate700,
+    width: 80, height: 80, borderRadius: 40, backgroundColor: '#f1f5f9',
     alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-    borderWidth: 4, borderColor: COLORS.slate600
+    borderWidth: 4, borderColor: '#e2e8f0'
   },
-  mirrorText: { fontSize: 10, fontWeight: '900', color: COLORS.slate400, textTransform: 'uppercase', letterSpacing: 1.5 },
+  mirrorText: { fontSize: 14, fontWeight: '800', color: COLORS.slateMedium, textTransform: 'uppercase', letterSpacing: 1 },
 
-  overlayContainer: { ...StyleSheet.absoluteFillObject, padding: 40, pointerEvents: 'none' },
-  dashedCircle: {
-    flex: 1, borderWidth: 4, borderColor: 'rgba(96, 165, 250, 0.3)',
-    borderRadius: 999, borderStyle: 'dashed'
+  overlayContainer: { ...StyleSheet.absoluteFillObject, padding: 0, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' },
+
+  faceGuideFrame: {
+    width: 200, height: 260,
+    justifyContent: 'space-between'
   },
-  scanLine: {
-    position: 'absolute', left: 0, right: 0, height: 8,
-    backgroundColor: COLORS.blue400, opacity: 0.5,
-    shadowColor: COLORS.blue400, shadowOpacity: 1, shadowRadius: 20
+  guideCorner: {
+    position: 'absolute', width: 40, height: 40, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 8
   },
 
-  corner: { position: 'absolute', width: 40, height: 40, borderColor: COLORS.yellow400 },
-  cornerTL: { top: 20, left: 20, borderTopWidth: 8, borderLeftWidth: 8, borderTopLeftRadius: 16 },
-  cornerTR: { top: 20, right: 20, borderTopWidth: 8, borderRightWidth: 8, borderTopRightRadius: 16 },
-  cornerBL: { bottom: 20, left: 20, borderBottomWidth: 8, borderLeftWidth: 8, borderBottomLeftRadius: 16 },
-  cornerBR: { bottom: 20, right: 20, borderBottomWidth: 8, borderRightWidth: 8, borderBottomRightRadius: 16 },
-
-  // Camera Controls (Inside Frame) - REMOVED
-  /*
-  cameraControls: {
+  // Camera Switch Button
+  cameraSwitchButton: {
     position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 50,
+    top: 20, right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderRadius: 20,
+    width: 44, height: 44,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.5)',
   },
-  shutterButtonOuter: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 4,
-    borderColor: 'white',
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shutterButtonInner: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'white',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.blue600,
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  shutterSpinner: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 3,
-    borderColor: COLORS.blue400, borderTopColor: COLORS.blue600
-  },
-  */
 
-  simpleStatus: { marginTop: 8, marginBottom: 8 },
-  simpleStatusText: { fontSize: 12, fontWeight: '700', color: COLORS.slate400, textTransform: 'uppercase', letterSpacing: 1 },
-
-  // Action Button (Below Camera Frame, Inside Mirror Container)
+  // Action Button
   actionContainer: {
     width: '100%',
-    marginTop: 50, // Gap between camera and button
-    marginBottom: -200, // Negative margin to eliminate space below button
-    paddingHorizontal: 0,
+    marginTop: 35, // Overlap the frame slightly
     alignItems: 'center',
+    zIndex: 20,
   },
   snapButton: {
-    width: '85%', // Reduced from 100%
-    borderRadius: 24,
-    shadowColor: COLORS.blue600, shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4, shadowRadius: 6, elevation: 8
+    width: '80%',
+    height: 72,
+    borderRadius: 36,
+    // Shadow handles separately for 3D effect
   },
-  snapButtonDisabled: { opacity: 0.5, shadowOpacity: 0.2 },
+  snapButtonDisabled: { opacity: 0.8 },
   snapButtonGradient: {
-    paddingVertical: 16, borderRadius: 24, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'center', gap: 10
+    flex: 1, borderRadius: 36, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'center', gap: 12,
+    zIndex: 2,
+    borderWidth: 3, borderColor: 'white'
   },
-  snapButtonText: { fontSize: 18, fontWeight: '900', color: 'white' },
+  snapButtonShadow: {
+    position: 'absolute', bottom: -6, left: 4, right: 4, height: '100%',
+    backgroundColor: '#1d4ed8', // Darker blue
+    borderRadius: 36,
+    zIndex: 1,
+  },
+  snapButtonText: { fontSize: 20, fontWeight: '900', color: 'white', letterSpacing: 1 },
 
-  helpLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24, padding: 8 },
-  helpLinkText: { fontSize: 14, fontWeight: '900', color: COLORS.slate400 },
+  helpLink: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, marginTop: 40, padding: 12, borderRadius: 24, backgroundColor: 'white', borderWidth: 2, borderColor: '#e2e8f0'
+  },
+  helpIconBg: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.slate400,
+    alignItems: 'center', justifyContent: 'center'
+  },
+  helpLinkText: { fontSize: 15, fontWeight: '800', color: COLORS.slateMedium },
 });

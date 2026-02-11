@@ -6,8 +6,10 @@ export const Config = {
         LIST_FACES: 'https://os4vuewaouwvj7clt5q3kejwgq0rzvwu.lambda-url.ap-southeast-1.on.aws/',
     },
     PHP_API: {
-        MARK_ATTENDANCE: 'https://yourphpserver.com/api/attendance.php', // Placeholder
-        GET_STUDENTS: 'https://yourphpserver.com/api/students.php'
+        BASE_URL: 'https://imastudent.academy/api',
+        MARK_ATTENDANCE: 'https://imastudent.academy/api/mark_attendance.php',
+        ENROLL_TO_AWS: 'https://imastudent.academy/api/enroll_to_aws.php',
+        PUBLIC_DOWNLOAD: 'https://imastudent.academy/api/public_download.php'
     },
     DEFAULT_INSTITUTE_ID: 'INST001',
     CONFIDENCE_THRESHOLD: 95,
